@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Atoms Aboard</title>
+    <style>
+        body {
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+            background-color: #f0f0f0;
+            font-family: Arial, sans-serif;
+        }
+        #gameCanvas {
+            border: 1px solid #000;
+            display: none;
+        }
+        #startScreen {
+            text-align: center;
+        }
+        h1 {
+            font-size: 48px;
+            color: #333;
+        }
+        button {
+            font-size: 18px;
+            padding: 10px 20px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            cursor: pointer;
+            border-radius: 5px;
+            margin: 5px;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+        button:disabled {
+            background-color: #cccccc;
+            cursor: not-allowed;
+        }
+        #gameInfo {
+            display: none;
+            margin-top: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div id="startScreen">
+        <h1>Atoms Aboard</h1>
+        <button id="startButton">Start</button>
+    </div>
+    <canvas id="gameCanvas" width="800" height="600"></canvas>
+    <div id="gameInfo">
+        <p>Money: <span id="moneyDisplay">0</span> coins</p>
+        <button id="upgradeButton">Upgrade Atoms (Cost: 20 coins)</button>
+        <button id="newAtomsButton" style="display: none;">Unlock New Atoms (Cost: 100 coins)</button>
+    </div>
+
+    <script>
+        const startScreen = document.getElementById('startScreen');
+        const startButton = document.getElementById('startButton');
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const gameInfo = document.getElementById('gameInfo');
+        const moneyDisplay = document.getElementById('moneyDisplay');
+        const upgradeButton = document.getElementById('upgradeButton');
+        const newAtomsButton = document.getElementById('newAtomsButton');
+
+        class Atom {
+            constructor(x, y, type) {
+                this.x = x;
+                this.y = y;
+                this.radius = 10;
+                this.type = type;
+            }
+
+            draw() {
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+                ctx.fillStyle = this.type;
+                ctx.fill();
+                ctx.closePath();
+            }
+
+            isClicked(mouseX, mouseY) {
+                const distance = Math.sqrt((mouseX - this.x) ** 2 + (mouseY - this.y) ** 2);
+                return distance <= this.radius;
+            }
+        }
+
+        let atoms = [];
+        let lastDuplicationTime = Date.now();
+        let gameOver = false;
+        let gameStarted = false;
+        let penaltyMessageTime = 0;
+        let money = 0;
+        let upgradeCount = 0;
+        let newAtomsUnlocked = false;
+        let duplicationRate = 1;
+
+        const atomProbabilities = {
+            blue: { prob: 100, unlockAt: 0, value: 1 },
+            green: { prob: 50, unlockAt: 2, value: 3 },
+            red: { prob: 30, unlockAt: 4, value: 5 },
+            purple: { prob: 20, unlockAt: 6, value: 7 },
+            yellow: { prob: 15, unlockAt: 8, value: 10 },
+            orange: { prob: 10, unlockAt: 10, value: 15 },
+            pink: { prob: 8, unlockAt: 12, value: 20 },
+            cyan: { prob: 6, unlockAt: 14, value: 25 },
+            magenta: { prob: 4, unlockAt: 16, value: 30 },
+            lime: { prob: 3, unlockAt: 18, value: 40 },
+            gold: { prob: 2, unlockAt: 20, value: 50 }
+        };
+
+        function getRandomAtomType() {
+            const totalProb = Object.values(atomProbabilities).reduce((sum, { prob, unlockAt }) => 
+                (unlockAt <= upgradeCount) ? sum + prob : sum, 0);
+            
+            let random = Math.random() * totalProb;
+            for (const [type, { prob, unlockAt }] of Object.entries(atomProbabilities)) {
+                if (unlockAt <= upgradeCount) {
+                    if (random < prob) {
+                        return type;
+                    }
+                    random -= prob;
+                }
+            }
+            return 'blue'; // Fallback to blue if something goes wrong
+        }
+
+        function drawGameOver() {
+            ctx.fillStyle = 'black';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            ctx.font = '74px Arial';
+            ctx.fillStyle = 'white';
+            ctx.textAlign = 'center';
+            ctx.fillText('Game Over', canvas.width / 2, canvas.height / 2);
+        }
+
+        function startGame() {
+            gameStarted = true;
+            gameOver = false;
+            atoms = [new Atom(Math.random() * canvas.width, Math.random() * canvas.height, 'blue')];
+            lastDuplicationTime = Date.now();
+            penaltyMessageTime = 0;
+            money = 0;
+            upgradeCount = 0;
+            newAtomsUnlocked = false;
+            duplicationRate = 1;
+            updateMoneyDisplay();
+            updateUpgradeButton();
+            newAtomsButton.style.display = 'none';
+            startScreen.style.display = 'none';
+            canvas.style.display = 'block';
+            gameInfo.style.display = 'block';
+            gameLoop();
+        }
+
+        function addPenaltyAtoms() {
+            for (let i = 0; i < 5; i++) {
+                const type = getRandomAtomType();
+                atoms.push(new Atom(Math.random() * canvas.width, Math.random() * canvas.height, type));
+            }
+            penaltyMessageTime = Date.now();
+        }
+
+        function updateMoneyDisplay() {
+            moneyDisplay.textContent = money;
+        }
+
+        function updateUpgradeButton() {
+            if (upgradeCount < 20) {
+                upgradeButton.textContent = `Upgrade Atoms (Cost: 20 coins) (${upgradeCount}/20)`;
+                upgradeButton.disabled = money < 20;
+            } else {
+                upgradeButton.textContent = "Max Upgrades Reached";
+                upgradeButton.disabled = true;
+                newAtomsButton.style.display = 'inline-block';
+            }
+        }
+
+        function gameLoop() {
+            if (!gameOver) {
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+                atoms.forEach(atom => atom.draw());
+
+                const currentTime = Date.now();
+                if (currentTime - lastDuplicationTime > (Math.random() * 10000 + 5000) / duplicationRate) {
+                    const newAtoms = atoms.map(() => {
+                        const type = getRandomAtomType();
+                        return new Atom(Math.random() * canvas.width, Math.random() * canvas.height, type);
+                    });
+                    atoms = atoms.concat(newAtoms);
+                    lastDuplicationTime = currentTime;
+                }
+
+                if (atoms.length === 0) {
+                    addPenaltyAtoms();
+                }
+
+                if (atoms.length > 10) {
+                    gameOver = true;
+                }
+
+                // Display penalty message
+                if (currentTime - penaltyMessageTime < 2000) {
+                    ctx.font = '24px Arial';
+                    ctx.fillStyle = 'black';
+                    ctx.textAlign = 'center';
+                    ctx.fillText('Penalty for losing all atoms', canvas.width / 2, 30);
+                }
+
+                requestAnimationFrame(gameLoop);
+            } else {
+                drawGameOver();
+                setTimeout(() => {
+                    canvas.style.display = 'none';
+                    gameInfo.style.display = 'none';
+                    startScreen.style.display = 'block';
+                    gameStarted = false;
+                }, 2000);
+            }
+        }
+
+        function handleClick(event) {
+            if (!gameStarted || gameOver) return;
+
+            const rect = canvas.getBoundingClientRect();
+            const mouseX = event.clientX - rect.left;
+            const mouseY = event.clientY - rect.top;
+
+            for (let i = atoms.length - 1; i >= 0; i--) {
+                if (atoms[i].isClicked(mouseX, mouseY)) {
+                    money += atomProbabilities[atoms[i].type].value;
+                    updateMoneyDisplay();
+                    updateUpgradeButton();
+                    atoms.splice(i, 1);
+                    break;
+                }
+            }
+        }
+
+        function upgradeAtoms() {
+            if (money >= 20 && upgradeCount < 20) {
+                money -= 20;
+                upgradeCount++;
+                updateMoneyDisplay();
+                updateUpgradeButton();
+                if (upgradeCount === 20) {
+                    duplicationRate = 1.5;
+                }
+            }
+        }
+
+        function unlockNewAtoms() {
+            if (money >= 100 && !newAtomsUnlocked) {
+                money -= 100;
+                newAtomsUnlocked = true;
+                updateMoneyDisplay();
+                newAtomsButton.textContent = "New Atoms Unlocked!";
+                newAtomsButton.disabled = true;
+            }
+        }
+
+        startButton.addEventListener('click', startGame);
+        canvas.addEventListener('click', handleClick);
+        upgradeButton.addEventListener('click', upgradeAtoms);
+        newAtomsButton.addEventListener('click', unlockNewAtoms);
+    </script>
+</body>
+</html>
